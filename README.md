@@ -1,9 +1,9 @@
 
 # Arduino library for MERG LCB running over CAN bus
 
-Together with the other MLCB libraries, it provides everything required to implement a FLiM MLCB module that can be configured using FCU or JMRI.
+Together with the other MLCB libraries, it provides everything required to implement a MLCB FLiM module that can be configured using FCU or JMRI.
 
-This library contains an abstract base class that must be implemented by a concrete subclass, depending on the processor and CAN controller to be used, e.g. MLCB2515, MLCBESP32, etc.
+This library contains an abstract base class that must be implemented by a subclass, depending on the processor and CAN controller to be used, e.g. MLCB2515, MLCBESP32, etc.
 
 ## Documentation
 
