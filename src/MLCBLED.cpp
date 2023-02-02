@@ -42,17 +42,18 @@
 //
 
 MLCBLED::MLCBLED() {
-
   _state = LOW;
   _blink = false;
+  _blinkrate = 0;
   _pulse = false;
+  _pulsetype = ON;
+  _pulselength = 0;
   _lastTime = 0UL;
 }
 
 //  set the pin for this LED
 
 void MLCBLED::setPin(byte pin) {
-
   _pin = pin;
   pinMode(_pin, OUTPUT);
 }
@@ -60,14 +61,12 @@ void MLCBLED::setPin(byte pin) {
 // return the current state, on or off
 
 bool MLCBLED::getState() {
-
   return _state;
 }
 
 // turn LED state on
 
 void MLCBLED::on(void) {
-
   _state = HIGH;
   _blink = false;
 }
@@ -75,7 +74,6 @@ void MLCBLED::on(void) {
 // turn LED state off
 
 void MLCBLED::off(void) {
-
   _state = LOW;
   _blink = false;
 }
@@ -83,25 +81,71 @@ void MLCBLED::off(void) {
 // toggle LED state from on to off or vv
 
 void MLCBLED::toggle(void) {
-
   _state = !_state;
 }
 
 // blink LED
 
-void MLCBLED::blink() {
-
+void MLCBLED::blink(byte rate) {
   _blink = true;
+  _blinkrate = (rate == FLASH_50_1HZ) ? 500 : 250;
 }
 
 // pulse the LED
 
 void MLCBLED::pulse() {
+  pulse_on();
+}
 
+void MLCBLED::pulse_on() {
   _pulse = true;
   _state = HIGH;
   _pulseStart = millis();
   run();
+}
+
+void MLCBLED::pulse_off() {
+  _pulse = true;
+  _state = LOW;
+  _pulseStart = millis();
+  run();
+}
+
+// an LED operation
+void MLCBLED::op(byte operation) {
+
+  switch (operation) {
+  case ON:
+    on();
+    break;
+  case OFF:
+    off();
+    break;
+  case FLASH_50_1HZ:            ///< 50% duty cycle  1Hz
+    _blinkrate = 500;
+    blink();
+    break;
+  case FLASH_50_HALF_HZ:        ///< 50% duty cycle 0.5Hz
+    _blinkrate = 250;
+    blink();
+    break;
+  case SINGLE_FLICKER_OFF:      ///< 250ms pulse off
+    _pulselength = 250;
+    pulse();
+    break;
+  case SINGLE_FLICKER_ON:       ///< 250ms pulse on
+    _pulselength = 250;
+    pulse();
+    break;
+  case LONG_FLICKER_OFF:        ///< 500ms pulse off
+    _pulselength = 500;
+    pulse();
+    break;
+  case LONG_FLICKER_ON:         ///< 500ms pulse on
+    _pulselength = 500;
+    pulse();
+    break;
+  }
 }
 
 // actually operate the LED dependent upon its current state
@@ -112,7 +156,7 @@ void MLCBLED::run() {
   if (_blink) {
 
     // blinking
-    if ((millis() - _lastTime) >= BLINK_RATE) {
+    if ((millis() - _lastTime) >= _blinkrate) {
       toggle();
       _lastTime = millis();
     }
@@ -120,9 +164,9 @@ void MLCBLED::run() {
 
   // single pulse
   if (_pulse) {
-    if (millis() - _pulseStart >= PULSE_ON_TIME) {
+    if (millis() - _pulseStart >= _pulselength) {
       _pulse = false;
-      _state = LOW;
+      _state = _pulsetype == ON ? OFF : ON;
     }
   }
 

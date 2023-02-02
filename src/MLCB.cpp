@@ -128,7 +128,7 @@ inline byte MLCBbase::getCANID(unsigned long header) {
 }
 
 //
-/// send a WRACK (write acknowledge) message
+/// send a WRACK (write acknowledge) message -- only for backward compatibility with CBUS
 //
 
 bool MLCBbase::sendWRACK(void) {
@@ -144,18 +144,28 @@ bool MLCBbase::sendWRACK(void) {
 }
 
 //
-/// send a CMDERR (command error) message
+/// send a CMDERR (command error) message -- only for backward compatibility with CBUS
 //
 
 bool MLCBbase::sendCMDERR(byte cerrno) {
 
   // send a command error response
+  return sendGRSP(cerrno);
+}
 
-  _msg.len = 4;
-  _msg.data[0] = OPC_CMDERR;
+//
+/// send a GRSP response message
+//
+
+bool MLCBbase::sendGRSP(byte cerrno, byte opcode, byte data1, byte data2) {
+  _msg.len = 7;
+  _msg.data[0] = OPC_GRSP;
   _msg.data[1] = highByte(module_config->nodeNum);
   _msg.data[2] = lowByte(module_config->nodeNum);
   _msg.data[3] = cerrno;
+  _msg.data[4] = opcode;
+  _msg.data[5] = data1;
+  _msg.data[6] = data2;
 
   return sendMessage(&_msg);
 }
@@ -378,6 +388,20 @@ void MLCBbase::process(byte num_messages) {
     }
   }
 
+  // heartbeat
+
+  if (hbactive && module_config->FLiM && millis() - hbtimer > HBTIMER_INTERVAL) {
+    hbtimer = millis();
+    _msg.len = 6;
+    _msg.data[0] = OPC_HEARTB;
+    _msg.data[1] = highByte(module_config->nodeNum);
+    _msg.data[2] = lowByte(module_config->nodeNum);
+    _msg.data[3] = hbcount++;
+    _msg.data[4] = 0;
+    _msg.data[5] = 0;
+    sendMessage(&_msg);
+  }
+
   // get received CAN frames from buffer
   // process by default 3 messages per run so the user's application code doesn't appear unresponsive under load
 
@@ -556,13 +580,10 @@ void MLCBbase::process(byte num_messages) {
           // DEBUG_SERIAL << F("> RQNPN request for parameter # ") << paran << F(", from nn = ") << nn << endl;
 
           if (paran <= _mparams[0]) {
-
             paran = _msg.data[3];
 
             _msg.len = 5;
             _msg.data[0] = OPC_PARAN;
-            // _msg.data[1] = highByte(module_config->nodeNum);
-            // _msg.data[2] = lowByte(module_config->nodeNum);
             _msg.data[3] = paran;
             _msg.data[4] = _mparams[paran];
             sendMessage(&_msg);
@@ -581,17 +602,14 @@ void MLCBbase::process(byte num_messages) {
 
         if (bModeChanging) {
           // DEBUG_SERIAL << F("> buf[1] = ") << _msg.data[1] << ", buf[2] = " << _msg.data[2] << endl;
-
           // save the NN
           // module_config->setNodeNum((_msg.data[1] << 8) + _msg.data[2]);
           module_config->setNodeNum(nn);
+          ++_numNNchanges;
 
           // respond with NNACK
           _msg.len = 3;
           _msg.data[0] = OPC_NNACK;
-          // _msg.data[1] = highByte(module_config->nodeNum);
-          // _msg.data[2] = lowByte(module_config->nodeNum);
-
           sendMessage(&_msg);
 
           // DEBUG_SERIAL << F("> sent NNACK for NN = ") << module_config->nodeNum << endl;
@@ -602,10 +620,7 @@ void MLCBbase::process(byte num_messages) {
           indicateMode(module_config->FLiM);
 
           // enumerate the CAN bus to allocate a free CAN ID
-          CANenumeration();
-
-          // DEBUG_SERIAL << F("> FLiM mode = ") << module_config->FLiM << F(", node number = ") << module_config->nodeNum << F(", CANID = ") << module_config->CANID << endl;
-
+          enumeration_required = true;
         } else {
           // DEBUG_SERIAL << F("> received SNN but not in transition") << endl;
         }
@@ -634,7 +649,7 @@ void MLCBbase::process(byte num_messages) {
 
         if (nn == module_config->nodeNum && remoteCANID != module_config->CANID && !bCANenum) {
           // DEBUG_SERIAL << F("> initiating enumeration") << endl;
-          CANenumeration();
+          enumeration_required = true;
         }
 
         break;
@@ -646,11 +661,8 @@ void MLCBbase::process(byte num_messages) {
           if (nvindex > module_config->EE_NUM_NVS) {
             sendCMDERR(10);
           } else {
-            // respond with NVANS
             _msg.len = 5;
             _msg.data[0] = OPC_NVANS;
-            // _msg.data[1] = highByte(module_config->nodeNum);
-            // _msg.data[2] = lowByte(module_config->nodeNum);
             _msg.data[4] = module_config->readNV(_msg.data[3]);
             sendMessage(&_msg);
           }
@@ -667,11 +679,8 @@ void MLCBbase::process(byte num_messages) {
           if (_msg.data[3] > module_config->EE_NUM_NVS) {
             sendCMDERR(10);
           } else {
-            // update EEPROM for this NV -- NVs are indexed from 1, not zero
             module_config->writeNV( _msg.data[3], _msg.data[4]);
-            // respond with WRACK
             sendWRACK();
-            // DEBUG_SERIAL << F("> set NV ok") << endl;
           }
         }
 
@@ -683,8 +692,6 @@ void MLCBbase::process(byte num_messages) {
 
         if (nn == module_config->nodeNum) {
           bLearn = true;
-          // DEBUG_SERIAL << F("> set lean mode ok") << endl;
-          // set bit 5 in parameter 8
           bitSet(_mparams[8], 5);
         }
 
@@ -692,31 +699,23 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_EVULN:
         // received EVULN -- unlearn an event, by event number
-        // en = (_msg.data[3] << 8) + _msg.data[4];
         // DEBUG_SERIAL << F("> EVULN for nn = ") << nn << F(", en = ") << en << endl;
 
         // we must be in learn mode
         if (bLearn == true) {
-
-          // DEBUG_SERIAL << F("> searching for existing event to unlearn") << endl;
-
           // search for this NN and EN pair
           index = module_config->findExistingEvent(nn, en);
 
           if (index < module_config->EE_MAX_EVENTS) {
-
             // DEBUG_SERIAL << F("> deleting event at index = ") << index << F(", evs ") << endl;
             module_config->cleareventEEPROM(j);
-
             // update hash table
             module_config->updateEvHashEntry(j);
-
             // respond with WRACK
             sendWRACK();
 
           } else {
             // DEBUG_SERIAL << F("> did not find event to unlearn") << endl;
-            // respond with CMDERR
             sendCMDERR(10);
           }
 
@@ -729,8 +728,6 @@ void MLCBbase::process(byte num_messages) {
 
         if (nn == module_config->nodeNum) {
           bLearn = false;
-          // DEBUG_SERIAL << F("> NNULN for node = ") << nn << F(", learn mode off") << endl;
-          // clear bit 5 in parameter 8
           bitClear(_mparams[8], 5);
         }
 
@@ -738,15 +735,10 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_RQEVN:
         // received RQEVN -- request for number of stored events
-        // DEBUG_SERIAL << F("> RQEVN -- number of stored events for nn = ") << nn << endl;
 
         if (nn == module_config->nodeNum) {
-
-          // respond with 0x74 NUMEV
           _msg.len = 4;
           _msg.data[0] = OPC_NUMEV;
-          // _msg.data[1] = highByte(module_config->nodeNum);
-          // _msg.data[2] = lowByte(module_config->nodeNum);
           _msg.data[3] = module_config->numEvents();
 
           sendMessage(&_msg);
@@ -756,7 +748,6 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_NERD:
         // request for all stored events
-        // DEBUG_SERIAL << F("> NERD : request all stored events for nn = ") << nn << endl;
 
         if (nn == module_config->nodeNum) {
           _msg.len = 8;
@@ -767,14 +758,8 @@ void MLCBbase::process(byte num_messages) {
           for (byte i = 0; i < module_config->EE_MAX_EVENTS; i++) {
 
             if (module_config->getEvTableEntry(i) != 0) {
-              // it's a valid stored event
-
-              // read the event data from EEPROM
-              // construct and send a ENRSP message
               module_config->readEvent(i, &_msg.data[3]);
               _msg.data[7] = i;                           // event table index
-
-              // DEBUG_SERIAL << F("> sending ENRSP reply for event index = ") << i << endl;
               sendMessage(&_msg);
               delay(10);
 
@@ -791,15 +776,11 @@ void MLCBbase::process(byte num_messages) {
         if (nn == module_config->nodeNum) {
 
           if (module_config->getEvTableEntry(_msg.data[3]) != 0) {
-
             _msg.len = 6;
             _msg.data[0] = OPC_NEVAL;
-            // _msg.data[1] = highByte(module_config->nodeNum);
-            // _msg.data[2] = lowByte(module_config->nodeNum);
             _msg.data[5] = module_config->getEventEVval(_msg.data[3], _msg.data[4]);
             sendMessage(&_msg);
           } else {
-
             // DEBUG_SERIAL << F("> request for invalid event index") << endl;
             sendCMDERR(6);
           }
@@ -812,17 +793,11 @@ void MLCBbase::process(byte num_messages) {
         // NNCLR -- clear all stored events
 
         if (bLearn == true && nn == module_config->nodeNum) {
-
-          // DEBUG_SERIAL << F("> NNCLR -- clear all events") << endl;
-
           for (byte e = 0; e < module_config->EE_MAX_EVENTS; e++) {
             module_config->cleareventEEPROM(e);
           }
 
-          // recreate the hash table
           module_config->clearEvHashTable();
-          // DEBUG_SERIAL << F("> cleared all events") << endl;
-
           sendWRACK();
         }
 
@@ -832,7 +807,6 @@ void MLCBbase::process(byte num_messages) {
         // request for number of free event slots
 
         if (module_config->nodeNum == nn) {
-
           byte free_slots = 0;
 
           // count free slots using the event hash table
@@ -842,12 +816,8 @@ void MLCBbase::process(byte num_messages) {
             }
           }
 
-          // DEBUG_SERIAL << F("> responding to to NNEVN with EVNLF, free event table slots = ") << free_slots << endl;
-          // memset(&_msg, 0, sizeof(_msg));
           _msg.len = 4;
           _msg.data[0] = OPC_EVNLF;
-          // _msg.data[1] = highByte(module_config->nodeNum);
-          // _msg.data[2] = lowByte(module_config->nodeNum);
           _msg.data[3] = free_slots;
           sendMessage(&_msg);
         }
@@ -856,10 +826,7 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_QNN:
         // this is probably a config recreate -- respond with PNN if we have a node number
-        // DEBUG_SERIAL << F("> QNN received, my node number = ") << module_config->nodeNum << endl;
-
         if (module_config->nodeNum > 0) {
-          // DEBUG_SERIAL << ("> responding with PNN message") << endl;
           _msg.len = 6;
           _msg.data[0] = OPC_PNN;
           _msg.data[1] = highByte(module_config->nodeNum);
@@ -894,22 +861,13 @@ void MLCBbase::process(byte num_messages) {
         evindex = _msg.data[5];
         evval = _msg.data[6];
 
-        // DEBUG_SERIAL << endl << F("> EVLRN for source nn = ") << nn << F(", en = ") << en << F(", evindex = ") << evindex << F(", evval = ") << evval << endl;
-
         // we must be in learn mode
         if (bLearn == true) {
-
-          // search for this NN, EN as we may just be adding an EV to an existing learned event
-          // DEBUG_SERIAL << F("> searching for existing event to update") << endl;
           index = module_config->findExistingEvent(nn, en);
 
-          // not found - it's a new event
           if (index >= module_config->EE_MAX_EVENTS) {
-            // DEBUG_SERIAL << F("> existing event not found - creating a new one if space available") << endl;
             index = module_config->findEventSpace();
           }
-
-          // if existing or new event space found, write the event data
 
           if (index < module_config->EE_MAX_EVENTS) {
 
@@ -922,11 +880,8 @@ void MLCBbase::process(byte num_messages) {
             }
 
             module_config->writeEventEV(index, evindex, evval);
-
             // recreate event hash table entry
-            // DEBUG_SERIAL << F("> updating hash table entry for idx = ") << index << endl;
             module_config->updateEvHashEntry(index);
-
             // respond with WRACK
             sendWRACK();
 
@@ -945,7 +900,7 @@ void MLCBbase::process(byte num_messages) {
       case OPC_AREQ:
         // AREQ message - request for node state, only producer nodes
 
-        if ((_msg.data[1] == highByte(module_config->nodeNum)) && (_msg.data[2] == lowByte(module_config->nodeNum))) {
+        if (module_config->nodeNum == nn) {
           (void)(*eventhandler)(0, &_msg);
         }
 
@@ -959,16 +914,73 @@ void MLCBbase::process(byte num_messages) {
         // command station status -- not applicable to accessory modules
         break;
 
-      // case OPC_ARST:
-      // system reset ... this is not what I thought it meant !
-      // module_config->reboot();
-      // break;
-
       case OPC_DTXC:
         // MLCB long message
         if (longMessageHandler != NULL) {
           longMessageHandler->processReceivedMessageFragment(&_msg);
         }
+        break;
+
+      /// new opcodes for MLCB MNS
+
+      case OPC_MODE:
+        if (module_config->nodeNum == nn) {
+          Serial << F("> got OPC_MODE") << endl;
+        }
+
+        break;
+
+      case OPC_RDGN:
+        if (module_config->nodeNum == nn) {
+          Serial << F("> got OPC_RDGN") << endl;
+          byte service_num = _msg.data[3];
+          byte data1 = 0;
+          byte data2 = 0;
+
+          switch (_msg.data[4]) {
+          case 2:
+            data1 = millis() >> 24;
+            data2 = millis() >> 16;
+            break;
+          case 3:
+            data1 = millis() >> 8;
+            data2 = millis() & 0xff;
+            break;
+          case 5:
+            data1 = _numNNchanges >> 8;
+            data2 = _numNNchanges & 0xff;
+            break;
+          case 7:
+            data1 = _numMsgsActioned >> 8;
+            data2 = _numMsgsActioned & 0xff;
+            break;
+          }
+
+          _msg.len = 5;
+          _msg.data[0] = OPC_DGN;
+          _msg.data[1] = highByte(module_config->nodeNum);
+          _msg.data[2] = lowByte(module_config->nodeNum);
+          _msg.data[3] = data1;
+          _msg.data[4] = data2;
+          sendMessage(&_msg);
+        }
+
+        break;
+
+      case OPC_RQSD:
+        if (module_config->nodeNum == nn) {
+          Serial << F("> got OPC_RDGN") << endl;
+          // byte service_num = _msg.data[3];
+          // byte diag_code = _msg.data[4];
+        }
+
+        break;
+
+      case OPC_REQEV:
+        if (module_config->nodeNum == nn) {
+          Serial << F("> got OPC_REQEV") << endl;
+        }
+
         break;
 
       default:
@@ -993,6 +1005,15 @@ void MLCBbase::process(byte num_messages) {
     // DEBUG_SERIAL << F("> timeout expired, FLiM = ") << FLiM << F(", mode change = ") << bModeChanging << endl;
     indicateMode(module_config->FLiM);
     bModeChanging = false;
+
+    /// per MLCB MNS -- send an NNACK if keeping previous node number > 0
+    if (module_config->FLiM && module_config->nodeNum > 0) {
+      _msg.len = 3;
+      _msg.data[0] = OPC_NNACK;
+      _msg.data[1] = highByte(module_config->nodeNum);
+      _msg.data[2] = lowByte(module_config->nodeNum);
+      sendMessage(&_msg);
+    }
   }
 
   // DEBUG_SERIAL << F("> end of opcode processing, time = ") << (micros() - mtime) << "us" << endl;

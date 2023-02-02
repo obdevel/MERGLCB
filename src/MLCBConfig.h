@@ -107,7 +107,6 @@ public:
   void readEvent(byte idx, byte tarr[]);
   void writeEvent(byte index, byte data[]);
   void cleareventEEPROM(byte index);
-  void resetModule(MLCBLED green, MLCBLED yellow, MLCBSwitch sw);
   void resetModule(void);
 
   byte readEEPROM(unsigned int eeaddress);

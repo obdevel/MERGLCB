@@ -853,62 +853,9 @@ unsigned int MLCBConfig::freeSRAM(void) {
 #endif
 }
 
-//
-/// manually reset the module to factory defaults
-//
-
-void MLCBConfig::resetModule(MLCBLED ledGrn, MLCBLED ledYlw, MLCBSwitch pbSwitch) {
-
-  /// standard implementation of resetModule()
-
-  bool bDone;
-  unsigned long waittime;
-
-  // start timeout timer
-  waittime = millis();
-  bDone = false;
-
-  // DEBUG_SERIAL << F("> waiting for a further 5 sec button push, as a safety measure") << endl;
-
-  pbSwitch.reset();
-  ledGrn.blink();
-  ledYlw.blink();
-
-  // wait for a further (5 sec) button press -- as a 'safety' mechanism
-  while (!bDone) {
-
-    // 30 sec timeout
-    if ((millis() - waittime) > 30000) {
-      // DEBUG_SERIAL << F("> timeout expired, reset not performed") << endl;
-      return;
-    }
-
-    pbSwitch.run();
-    ledGrn.run();
-    ledYlw.run();
-
-    // wait until switch held for a further 5 secs
-    if (pbSwitch.isPressed() && pbSwitch.getCurrentStateDuration() > 5000) {
-      bDone = true;
-    }
-  }
-
-  // do the reset
-  // DEBUG_SERIAL << F("> performing module reset ...") <<  endl;
-
-  ledGrn.off();
-  ledYlw.off();
-  ledGrn.run();
-  ledYlw.run();
-
-  resetModule();
-
-}
-
 void MLCBConfig::resetModule(void) {
 
   /// implementation of resetModule() without MLCBswitch or MLCBLEDs
-  // uint32_t t = millis();
   // DEBUG_SERIAL << F("> resetting EEPROM") << endl;
 
   if (eeprom_type == EEPROM_INTERNAL) {

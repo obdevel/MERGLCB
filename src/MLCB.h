@@ -48,12 +48,13 @@
 #include <MLCBConfig.h>
 #include <MLCBdefs.h>
 
-#define SW_TR_HOLD 6000U                   // MLCB push button hold time for SLiM/FLiM transition in millis = 6 seconds
-#define DEFAULT_PRIORITY 0xB               // default MLCB messages priority. 1011 = 2|3 = normal/low
-#define LONG_MESSAGE_DEFAULT_DELAY 20      // delay in milliseconds between sending successive long message fragments
-#define LONG_MESSAGE_RECEIVE_TIMEOUT 5000  // timeout waiting for next long message packet
-#define NUM_EX_CONTEXTS 4                  // number of send and receive contexts for extended implementation = number of concurrent messages
-#define EX_BUFFER_LEN 64                   // size of extended send and receive buffers
+#define SW_TR_HOLD 8000U                     // MLCB push button hold time for SLiM/FLiM transition in millis = 8 seconds
+#define DEFAULT_PRIORITY 0xB                 // default MLCB messages priority. 1011 = 2|3 = normal/low
+#define LONG_MESSAGE_DEFAULT_DELAY 20U       // delay in milliseconds between sending successive long message fragments
+#define LONG_MESSAGE_RECEIVE_TIMEOUT 5000UL  // timeout waiting for next long message packet
+#define NUM_EX_CONTEXTS 4U                   // number of send and receive contexts for extended implementation = number of concurrent messages
+#define EX_BUFFER_LEN 64U                    // size of extended send and receive buffers
+#define HBTIMER_INTERVAL 5000UL              // heartbeat interval in ms 
 
 //
 /// MLCB modes
@@ -122,6 +123,7 @@ public:
 
   bool sendWRACK(void);
   bool sendCMDERR(byte cerrno);
+  bool sendGRSP(byte cerrno, byte opcode = 0, byte data1 = 0, byte data2 = 0);
   void CANenumeration(void);
   byte getCANID(unsigned long header);
   bool isExt(CANFrame *msg);
@@ -145,7 +147,7 @@ public:
 
   void setLongMessageHandler(MLCBLongMessage *handler);
 
-  unsigned int _numMsgsSent, _numMsgsRcvd;
+  unsigned int _numMsgsSent, _numMsgsRcvd, _numMsgsActioned, _numNNchanges;
 
 protected:                                          // protected members become private in derived classes
   CANFrame _msg;
@@ -164,6 +166,10 @@ protected:                                          // protected members become 
   unsigned long timeOutTimer, CANenumTime;
   bool enumeration_required;
   bool UI = false;
+
+  bool hbactive;
+  uint8_t hbcount;
+  uint32_t hbtimer;
 
   MLCBLongMessage *longMessageHandler = NULL;       // MLCB long message object to receive relevant frames
 };

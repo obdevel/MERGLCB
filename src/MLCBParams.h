@@ -34,14 +34,25 @@
 
 */
 
-#include <MLCBConfig.h>
-#include <MLCBdefs.h>               // MERG MLCB constants
+#define MANU_DEV  13  // For new manufacturer development - who don't have a manufacturer id yet
+#define MANU_MERG 165 // https://www.merg.co.uk
+#define PB_CAN  1 // 
+#define CPUM_ATMEL  2 // 
 
-class MLCBParams
-{
+#define PF_NOEVENTS 0 // Module doesn't support events
+#define PF_CONSUMER 1 // Module is a consumer of events
+#define PF_PRODUCER 2 // Module is a producer of events
+#define PF_COMBI  3 // Module is both a consumer and producer of events
+#define PF_FLiM 4 // Module is in FLiM
+#define PF_BOOT 8 // Module supports the FCU bootloader protocol
+#define PF_COE  16  // Module can consume its own events
+#define PF_LRN  32  // Module is in learn mode
+
+#include <MLCBConfig.h>
+
+class MLCBParams {
 public:
-  MLCBParams(MLCBConfig const & config)
-  {
+  MLCBParams(MLCBConfig const & config) {
     params[0] = 20;                     //  0 num params = 20
     params[1] = MANU_MERG;              //  1 manf = MERG, 165
     params[4] = config.EE_MAX_EVENTS;   //  4 num events
@@ -55,33 +66,28 @@ public:
     initProcessorParams();
   }
 
-  void setVersion(char major, char minor, char beta)
-  {
+  void setVersion(char major, char minor, char build) {
     params[7] = major;                //  7 code major version
     params[2] = minor;                //  2 code minor version
-    params[20] = beta;                // 20 code beta version
+    params[20] = build;                // 20 code beta version
   }
 
-  void setModuleId(byte id)
-  {
+  void setModuleId(byte id) {
     params[3] = id;                   //  3 module id
   }
 
-  void setFlags(byte flags)
-  {
+  void setFlags(byte flags) {
     params[8] = flags;                //  8 flags - FLiM, consumer/producer
   }
 
   // Optional: use this to override processor info that is set by default.
-  void setProcessor(byte manufacturer, byte id, char const * name)
-  {
+  void setProcessor(byte manufacturer, byte id, char const * name) {
     params[9] = id;                  //  9 processor id
     params[19] = manufacturer;       // 19 processor manufacturer
     memcpy(params + 15, name, 4);   // 15-18 processor version
   }
 
-  unsigned char * getParams()
-  {
+  unsigned char * getParams() {
     return params;
   }
 
@@ -92,3 +98,4 @@ private:
   // Memory for the params is allocated on global memory and handed over to MLCB.setParams().
   static unsigned char params[21];
 };
+

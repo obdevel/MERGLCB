@@ -41,15 +41,22 @@
 
 #pragma once
 
+typedef enum {
+  OFF,            ///< fixed OFF
+  ON,             ///< fixed ON
+  FLASH_50_1HZ,   ///< 50% duty cycle  1Hz
+  FLASH_50_HALF_HZ,   ///< 50% duty cycle 0.5Hz
+  SINGLE_FLICKER_OFF, ///< 250ms pulse off
+  SINGLE_FLICKER_ON,  ///< 250ms pulse on
+  LONG_FLICKER_OFF,   ///< 500ms pulse off
+  LONG_FLICKER_ON     ///< 500ms pulse on
+} LedState;
+
 #ifndef DEBUG_SERIAL
 #define DEBUG_SERIAL Serial
 #endif
 
-#define BLINK_RATE 500    // flash at 1Hz, 500mS on, 500mS off
-#define PULSE_ON_TIME 5
-
 #include <Arduino.h>      // for definition of byte datatype
-// #include <Streaming.h>
 
 //
 /// class to encapsulate a non-blocking LED
@@ -64,15 +71,21 @@ public:
   void on();
   void off();
   void toggle();
-  void blink();
+  void blink(byte rate=FLASH_50_1HZ);
   virtual void run();
   void pulse();
+  void pulse_on();
+  void pulse_off();
+  void op(byte op);
 
 protected:
   byte _pin;
   bool _state;
   bool _blink;
+  unsigned int _blinkrate;
   bool _pulse;
+  byte _pulsetype;
+  unsigned int _pulselength;
   unsigned long _lastTime, _pulseStart;
   virtual void _write(byte pin, bool state);
 };
