@@ -1,7 +1,6 @@
 
 /*
-
-  Copyright (C) Duncan Greenwood 2017 (duncan_greenwood@hotmail.com)
+  Copyright (C) Duncan Greenwood 2023 (duncan_greenwood@hotmail.com)
 
   This work is licensed under the:
       Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
@@ -43,16 +42,6 @@
 
 // forward function declarations
 void makeHeader_impl(CANFrame *msg, byte id, byte priority = 0x0b);
-
-//
-/// construct a MLCB object with an external MLCBConfig object named "config" that is defined
-/// in user code
-//
-
-MLCBbase::MLCBbase() {
-  extern MLCBConfig config;
-  module_config = &config;
-}
 
 //
 /// construct a MLCB object with a MLCBConfig object that the user provides.
@@ -110,11 +99,10 @@ void MLCBbase::setName(unsigned char *mname) {
 
 void MLCBbase::setSLiM(void) {
 
-  bModeChanging = false;
+  mode_changing = false;
   module_config->setNodeNum(0);
   module_config->setFLiM(false);
   module_config->setCANID(0);
-
   indicateMode(module_config->FLiM);
 }
 
@@ -123,7 +111,6 @@ void MLCBbase::setSLiM(void) {
 //
 
 inline byte MLCBbase::getCANID(unsigned long header) {
-
   return header & 0x7f;
 }
 
@@ -139,7 +126,6 @@ bool MLCBbase::sendWRACK(void) {
   _msg.data[0] = OPC_WRACK;
   _msg.data[1] = highByte(module_config->nodeNum);
   _msg.data[2] = lowByte(module_config->nodeNum);
-
   return sendMessage(&_msg);
 }
 
@@ -150,7 +136,12 @@ bool MLCBbase::sendWRACK(void) {
 bool MLCBbase::sendCMDERR(byte cerrno) {
 
   // send a command error response
-  return sendGRSP(cerrno);
+  _msg.len = 4;
+  _msg.data[0] = OPC_GRSP;
+  _msg.data[1] = highByte(module_config->nodeNum);
+  _msg.data[2] = lowByte(module_config->nodeNum);
+  _msg.data[3] = cerrno;
+  return sendMessage(&_msg);
 }
 
 //
@@ -158,6 +149,7 @@ bool MLCBbase::sendCMDERR(byte cerrno) {
 //
 
 bool MLCBbase::sendGRSP(byte cerrno, byte opcode, byte data1, byte data2) {
+
   _msg.len = 7;
   _msg.data[0] = OPC_GRSP;
   _msg.data[1] = highByte(module_config->nodeNum);
@@ -166,7 +158,6 @@ bool MLCBbase::sendGRSP(byte cerrno, byte opcode, byte data1, byte data2) {
   _msg.data[4] = opcode;
   _msg.data[5] = data1;
   _msg.data[6] = data2;
-
   return sendMessage(&_msg);
 }
 
@@ -192,22 +183,16 @@ bool MLCBbase::isRTR(CANFrame *amsg) {
 /// if in FLiM mode, initiate a CAN ID enumeration cycle
 //
 
-void MLCBbase::CANenumeration(void) {
+void MLCBbase::start_enumeration(void) {
 
   // initiate CAN bus enumeration cycle, either due to ENUM opcode, ID clash, or user button press
-
-  // DEBUG_SERIAL << F("> beginning self-enumeration cycle") << endl;
-
-  // set global variables
-  bCANenum = true;                  // we are enumerating
-  CANenumTime = millis();           // the cycle start time
-  memset(enum_responses, 0, sizeof(enum_responses));
-
-  // send zero-length RTR frame
+  enumeration_required = false;
+  enumeration_active = true;        // we are enumerating
+  enumeration_start = millis();     // the cycle start time
+  memset(enumeration_responses, 0, sizeof(enumeration_responses));
   _msg.len = 0;
-  sendMessage(&_msg, true, false);          // fixed arg order in v 1.1.4, RTR - true, ext = false
+  sendMessage(&_msg, true, false);
 
-  // DEBUG_SERIAL << F("> enumeration cycle initiated") << endl;
   return;
 }
 
@@ -217,12 +202,9 @@ void MLCBbase::CANenumeration(void) {
 
 void MLCBbase::initFLiM(void) {
 
-  // DEBUG_SERIAL << F("> initiating FLiM negotation") << endl;
-
   indicateMode(MODE_CHANGING);
-
-  bModeChanging = true;
-  timeOutTimer = millis();
+  mode_changing = true;
+  timeout_timer = millis();
 
   // send RQNN message with current NN, which may be zero if a virgin/SLiM node
   _msg.len = 3;
@@ -231,7 +213,6 @@ void MLCBbase::initFLiM(void) {
   _msg.data[2] = lowByte(module_config->nodeNum);
   sendMessage(&_msg);
 
-  // DEBUG_SERIAL << F("> requesting NN with RQNN message for NN = ") << module_config->nodeNum << endl;
   return;
 }
 
@@ -248,9 +229,9 @@ void MLCBbase::revertSLiM(void) {
   _msg.data[0] = OPC_NNREL;
   _msg.data[1] = highByte(module_config->nodeNum);
   _msg.data[2] = lowByte(module_config->nodeNum);
-
   sendMessage(&_msg);
   setSLiM();
+
   return;
 }
 
@@ -272,8 +253,6 @@ void MLCBbase::setLEDs(MLCBLED green, MLCBLED yellow) {
   UI = true;
   _ledGrn = green;
   _ledYlw = yellow;
-
-  return;
 }
 
 //
@@ -291,8 +270,6 @@ void MLCBbase::setSwitch(MLCBSwitch sw) {
 //
 
 void MLCBbase::indicateMode(byte mode) {
-
-  // DEBUG_SERIAL << F("> indicating mode = ") << mode << endl;
 
   if (UI) {
     switch (mode) {
@@ -318,7 +295,9 @@ void MLCBbase::indicateMode(byte mode) {
   }
 }
 
+//
 /// main MLCB message processing procedure
+//
 
 void MLCBbase::process(byte num_messages) {
 
@@ -327,14 +306,12 @@ void MLCBbase::process(byte num_messages) {
 
   // start bus enumeration if required
   if (enumeration_required) {
-    enumeration_required = false;
-    CANenumeration();
+    start_enumeration();
   }
 
   // process switch operations if the module is configured with one
 
   if (UI) {
-
     // allow LEDs to update
     _ledGrn.run();
     _ledYlw.run();
@@ -342,10 +319,7 @@ void MLCBbase::process(byte num_messages) {
     // allow the MLCB switch some processing time
     _sw.run();
 
-    //
-    /// use LEDs to indicate that the user can release the switch
-    //
-
+    // use LEDs to indicate that the user can release the switch
     if (_sw.isPressed() && _sw.getCurrentStateDuration() > SW_TR_HOLD) {
       indicateMode(MODE_CHANGING);
     }
@@ -355,16 +329,12 @@ void MLCBbase::process(byte num_messages) {
     //
 
     if (_sw.stateChanged()) {
-
-      // has switch been released ?
       if (!_sw.isPressed()) {
 
-        // how long was it pressed for ?
         unsigned long press_time = _sw.getLastStateDuration();
 
-        // long hold > 6 secs
+        // long hold > 8 secs
         if (press_time > SW_TR_HOLD) {
-          // initiate mode change
           if (!module_config->FLiM) {
             initFLiM();
           } else {
@@ -379,18 +349,16 @@ void MLCBbase::process(byte num_messages) {
 
         // very short < 0.5 sec
         if (press_time < 500 && module_config->FLiM) {
-          CANenumeration();
+          start_enumeration();
         }
 
-      } else {
-        // do any switch release processing here
       }
     }
   }
 
   // heartbeat
 
-  if (hbactive && module_config->FLiM && millis() - hbtimer > HBTIMER_INTERVAL) {
+  if (isMLCB && hbactive && module_config->FLiM && millis() - hbtimer > HBTIMER_INTERVAL) {
     hbtimer = millis();
     _msg.len = 6;
     _msg.data[0] = OPC_HEARTB;
@@ -457,7 +425,6 @@ void MLCBbase::process(byte num_messages) {
 
     // is this a CANID enumeration request from another node (RTR set) ?
     if (_msg.rtr) {
-      // DEBUG_SERIAL << F("> CANID enumeration RTR from CANID = ") << remoteCANID << endl;
       // send an empty message to show our CANID
       _msg.len = 0;
       sendMessage(&_msg);
@@ -470,24 +437,20 @@ void MLCBbase::process(byte num_messages) {
     //
 
     if (remoteCANID == module_config->CANID && _msg.len > 0) {
-      // DEBUG_SERIAL << F("> CAN id clash, enumeration required") << endl;
       enumeration_required = true;
     }
 
     // is this an extended frame ? we currently ignore these as bootloader, etc data may confuse us !
     if (_msg.ext) {
-      // DEBUG_SERIAL << F("> extended frame ignored, from CANID = ") << remoteCANID << endl;
       continue;
     }
 
     // are we enumerating CANIDs ?
-    if (bCANenum && _msg.len == 0) {
+    if (enumeration_active && _msg.len == 0) {
 
       // store this response in the responses array
       if (remoteCANID > 0) {
-        // fix to correctly record the received CANID
-        bitWrite(enum_responses[(remoteCANID / 16)], remoteCANID % 8, 1);
-        // DEBUG_SERIAL << F("> stored CANID ") << remoteCANID << F(" at index = ") << (remoteCANID / 8) << F(", bit = ") << (remoteCANID % 8) << endl;
+        bitWrite(enumeration_responses[(remoteCANID / 16)], remoteCANID % 8, 1);
       }
 
       continue;
@@ -544,12 +507,9 @@ void MLCBbase::process(byte num_messages) {
       case OPC_RQNP:
         // RQNP message - request for node paramters -- does not contain a NN or EN, so only respond if we
         // are in transition to FLiM
-        // DEBUG_SERIAL << F("> RQNP -- request for node params during FLiM transition for NN = ") << nn << endl;
 
         // only respond if we are in transition to FLiM mode
-        if (bModeChanging == true) {
-
-          // DEBUG_SERIAL << F("> responding to RQNP with PARAMS") << endl;
+        if (mode_changing == true) {
 
           // respond with PARAMS message
           _msg.len = 8;
@@ -561,9 +521,7 @@ void MLCBbase::process(byte num_messages) {
           _msg.data[5] = _mparams[5];     // events vars per event
           _msg.data[6] = _mparams[6];     // number of NVs
           _msg.data[7] = _mparams[7];     // major code ver
-          // final param[8] = node flags is not sent here as the max message payload is 8 bytes (0-7)
           sendMessage(&_msg);
-
         }
 
         break;
@@ -577,8 +535,6 @@ void MLCBbase::process(byte num_messages) {
 
           byte paran = _msg.data[3];
 
-          // DEBUG_SERIAL << F("> RQNPN request for parameter # ") << paran << F(", from nn = ") << nn << endl;
-
           if (paran <= _mparams[0]) {
             paran = _msg.data[3];
 
@@ -589,7 +545,6 @@ void MLCBbase::process(byte num_messages) {
             sendMessage(&_msg);
 
           } else {
-            // DEBUG_SERIAL << F("> RQNPN - param #") << paran << F(" is out of range !") << endl;
             sendCMDERR(9);
           }
         }
@@ -598,12 +553,9 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_SNN:
         // received SNN - set node number
-        // DEBUG_SERIAL << F("> received SNN with NN = ") << nn << endl;
 
-        if (bModeChanging) {
-          // DEBUG_SERIAL << F("> buf[1] = ") << _msg.data[1] << ", buf[2] = " << _msg.data[2] << endl;
+        if (mode_changing) {
           // save the NN
-          // module_config->setNodeNum((_msg.data[1] << 8) + _msg.data[2]);
           module_config->setNodeNum(nn);
           ++_numNNchanges;
 
@@ -612,10 +564,8 @@ void MLCBbase::process(byte num_messages) {
           _msg.data[0] = OPC_NNACK;
           sendMessage(&_msg);
 
-          // DEBUG_SERIAL << F("> sent NNACK for NN = ") << module_config->nodeNum << endl;
-
           // we are now in FLiM mode - update the configuration
-          bModeChanging = false;
+          mode_changing = false;
           module_config->setFLiM(true);
           indicateMode(module_config->FLiM);
 
@@ -629,7 +579,6 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_CANID:
         // CAN -- set CANID
-        // DEBUG_SERIAL << F("> CANID for nn = ") << nn << F(" with new CANID = ") << _msg.data[3] << endl;
 
         if (nn == module_config->nodeNum) {
           // DEBUG_SERIAL << F("> setting my CANID to ") << _msg.data[3] << endl;
@@ -644,10 +593,8 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_ENUM:
         // received ENUM -- start CAN bus self-enumeration
-        // DEBUG_SERIAL << F("> ENUM message for nn = ") << nn << F(" from CANID = ") << remoteCANID << endl;
-        // DEBUG_SERIAL << F("> my nn = ") << module_config->nodeNum << endl;
 
-        if (nn == module_config->nodeNum && remoteCANID != module_config->CANID && !bCANenum) {
+        if (nn == module_config->nodeNum && remoteCANID != module_config->CANID && !enumeration_active) {
           // DEBUG_SERIAL << F("> initiating enumeration") << endl;
           enumeration_required = true;
         }
@@ -672,10 +619,8 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_NVSET:
         // received NVSET -- set NV by index
-        // DEBUG_SERIAL << F("> received NVSET for nn = ") << nn << endl;
 
         if (nn == module_config->nodeNum) {
-
           if (_msg.data[3] > module_config->EE_NUM_NVS) {
             sendCMDERR(10);
           } else {
@@ -688,7 +633,6 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_NNLRN:
         // received NNLRN -- place into learn mode
-        // DEBUG_SERIAL << F("> NNLRN for node = ") << nn << F(", learn mode on") << endl;
 
         if (nn == module_config->nodeNum) {
           bLearn = true;
@@ -699,7 +643,6 @@ void MLCBbase::process(byte num_messages) {
 
       case OPC_EVULN:
         // received EVULN -- unlearn an event, by event number
-        // DEBUG_SERIAL << F("> EVULN for nn = ") << nn << F(", en = ") << en << endl;
 
         // we must be in learn mode
         if (bLearn == true) {
@@ -707,7 +650,6 @@ void MLCBbase::process(byte num_messages) {
           index = module_config->findExistingEvent(nn, en);
 
           if (index < module_config->EE_MAX_EVENTS) {
-            // DEBUG_SERIAL << F("> deleting event at index = ") << index << F(", evs ") << endl;
             module_config->cleareventEEPROM(j);
             // update hash table
             module_config->updateEvHashEntry(j);
@@ -715,7 +657,6 @@ void MLCBbase::process(byte num_messages) {
             sendWRACK();
 
           } else {
-            // DEBUG_SERIAL << F("> did not find event to unlearn") << endl;
             sendCMDERR(10);
           }
 
@@ -740,7 +681,6 @@ void MLCBbase::process(byte num_messages) {
           _msg.len = 4;
           _msg.data[0] = OPC_NUMEV;
           _msg.data[3] = module_config->numEvents();
-
           sendMessage(&_msg);
         }
 
@@ -781,7 +721,6 @@ void MLCBbase::process(byte num_messages) {
             _msg.data[5] = module_config->getEventEVval(_msg.data[3], _msg.data[4]);
             sendMessage(&_msg);
           } else {
-            // DEBUG_SERIAL << F("> request for invalid event index") << endl;
             sendCMDERR(6);
           }
 
@@ -842,12 +781,10 @@ void MLCBbase::process(byte num_messages) {
       case OPC_RQMN:
         // request for node module name, excluding "CAN" prefix
         // sent during module transition, so no node number check
-        // DEBUG_SERIAL << F("> RQMN received") << endl;
-
         // only respond if in transition to FLiM
 
         // respond with NAME
-        if (bModeChanging) {
+        if (mode_changing) {
           _msg.len = 8;
           _msg.data[0] = OPC_NAME;
           memcpy(_msg.data + 1, _mname, 7);
@@ -872,8 +809,6 @@ void MLCBbase::process(byte num_messages) {
           if (index < module_config->EE_MAX_EVENTS) {
 
             // write the event to EEPROM at this location -- EVs are indexed from 1 but storage offsets start at zero !!
-            // DEBUG_SERIAL << F("> writing EV = ") << evindex << F(", at index = ") << index << F(", offset = ") << (module_config->EE_EVENTS_START + (index * module_config->EE_BYTES_PER_EVENT)) << endl;
-
             // don't repeat this for subsequent EVs
             if (evindex < 2) {
               module_config->writeEvent(index, &_msg.data[1]);
@@ -886,13 +821,11 @@ void MLCBbase::process(byte num_messages) {
             sendWRACK();
 
           } else {
-            // DEBUG_SERIAL << F("> no free event storage, index = ") << index << endl;
             // respond with CMDERR
             sendCMDERR(10);
           }
 
         } else { // bLearn == true
-          // DEBUG_SERIAL << F("> error -- not in learn mode") << endl;
         }
 
         break;
@@ -915,9 +848,9 @@ void MLCBbase::process(byte num_messages) {
         break;
 
       case OPC_DTXC:
-        // MLCB long message
-        if (longMessageHandler != NULL) {
-          longMessageHandler->processReceivedMessageFragment(&_msg);
+        // MLCB multipart message
+        if (MultipartMessageHandler != NULL) {
+          MultipartMessageHandler->processReceivedMessageFragment(&_msg);
         }
         break;
 
@@ -985,26 +918,22 @@ void MLCBbase::process(byte num_messages) {
 
       default:
         // unknown or unhandled OPC
-        // DEBUG_SERIAL << F("> opcode 0x") << _HEX(opc) << F(" is not currently implemented")  << endl;
         break;
       }
     } else {
-      // DEBUG_SERIAL << F("> oops ... zero - length frame ?? ") << endl;
     }
   }  // while messages available
 
   // check CAN bus enumeration timer
-  checkCANenum();
+  check_enumeration();
 
   //
   /// check 30 sec timeout for SLiM/FLiM negotiation with FCU
   //
 
-  if (bModeChanging && ((millis() - timeOutTimer) >= 30000)) {
-
-    // DEBUG_SERIAL << F("> timeout expired, FLiM = ") << FLiM << F(", mode change = ") << bModeChanging << endl;
+  if (mode_changing && ((millis() - timeout_timer) >= 30000)) {
     indicateMode(module_config->FLiM);
-    bModeChanging = false;
+    mode_changing = false;
 
     /// per MLCB MNS -- send an NNACK if keeping previous node number > 0
     if (module_config->FLiM && module_config->nodeNum > 0) {
@@ -1016,8 +945,6 @@ void MLCBbase::process(byte num_messages) {
     }
   }
 
-  // DEBUG_SERIAL << F("> end of opcode processing, time = ") << (micros() - mtime) << "us" << endl;
-
   //
   /// end of MLCB message processing
   //
@@ -1025,27 +952,23 @@ void MLCBbase::process(byte num_messages) {
   return;
 }
 
-void MLCBbase::checkCANenum(void) {
+void MLCBbase::check_enumeration(void) {
 
   //
   /// check the 100ms CAN enumeration cycle timer
   //
 
-  byte selected_id = 1;     // default if no responses from other modules
+  // if (enumeration_active && !enumeration_activeComplete && (millis() - enumeration_start) >= 100) {
+  if (enumeration_active && (millis() - enumeration_start) >= 100) {
 
-  // if (bCANenum && !bCANenumComplete && (millis() - CANenumTime) >= 100) {
-  if (bCANenum && (millis() - CANenumTime) >= 100) {
+    byte selected_id = 1;     // default if no responses from other modules
 
     // enumeration timer has expired -- stop enumeration and process the responses
-
-    // DEBUG_SERIAL << F("> enum cycle complete at ") << millis() << F(", start = ") << CANenumTime << F(", duration = ") << (millis() - CANenumTime) << endl;
-    // DEBUG_SERIAL << F("> processing received responses") << endl;
-
     // iterate through the 128 bit field
     for (byte i = 0; i < 16; i++) {
 
       // ignore if this byte is all 1's -> there are no unused IDs in this group of numbers
-      if (enum_responses[i] == 0xff) {
+      if (enumeration_responses[i] == 0xff) {
         continue;
       }
 
@@ -1058,11 +981,8 @@ void MLCBbase::checkCANenum(void) {
         }
 
         // if the bit is not set
-        if (bitRead(enum_responses[i], b) == 0) {
+        if (bitRead(enumeration_responses[i], b) == 0) {
           selected_id = ((i * 16) + b);
-          // DEBUG_SERIAL << F("> bit ") << b << F(" of byte ") << i << F(" is not set, first free CAN ID = ") << selected_id << endl;
-          // i = 16; // ugh ... but probably better than a goto :)
-          // but using a goto saves 4 bytes of program size ;)
           goto check_done;
           break;
         }
@@ -1073,9 +993,9 @@ check_done:
 
     // DEBUG_SERIAL << F("> enumeration responses = ") << enums << F(", lowest available CAN id = ") << selected_id << endl;
 
-    // bCANenumComplete = true;
-    bCANenum = false;
-    CANenumTime = 0UL;
+    // enumeration_activeComplete = true;
+    enumeration_active = false;
+    enumeration_start = 0UL;
 
     // store the new CAN ID
     module_config->setCANID(selected_id);
@@ -1112,11 +1032,11 @@ void MLCBbase::processAccessoryEvent(unsigned int nn, unsigned int en, bool is_o
 }
 
 //
-/// set the long message handler object to receive long message frames
+/// set the multipart message handler object to receive multipart message frames
 //
 
-void MLCBbase::setLongMessageHandler(MLCBLongMessage *handler) {
-  longMessageHandler = handler;
+void MLCBbase::setMultipartMessageHandler(MLCBMultipartMessage *handler) {
+  MultipartMessageHandler = handler;
 }
 
 //

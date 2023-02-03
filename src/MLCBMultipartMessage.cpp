@@ -49,20 +49,20 @@ uint32_t crc32(const char *s, size_t n);
 
 //
 /// constructor
-/// receives a pointer to a MLCB object which provides the CAN message handling capability
+/// receives a pointer to a MLCB object which provides the multipart message handling capability
 //
 
-MLCBLongMessage::MLCBLongMessage(MLCBbase *MLCB_object_ptr) {
+MLCBMultipartMessage::MLCBMultipartMessage(MLCBbase *MLCB_object_ptr) {
 
 	_MLCB_object_ptr = MLCB_object_ptr;
-	_MLCB_object_ptr->setLongMessageHandler(this);
+	_MLCB_object_ptr->setMultipartMessageHandler(this);
 }
 
 //
 /// subscribe to a range of stream IDs
 //
 
-void MLCBLongMessage::subscribe(byte *stream_ids, const byte num_stream_ids, void *receive_buffer, const unsigned int receive_buff_len, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status)) {
+void MLCBMultipartMessage::subscribe(byte *stream_ids, const byte num_stream_ids, void *receive_buffer, const unsigned int receive_buff_len, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status)) {
 
 	_stream_ids = stream_ids;
 	_num_stream_ids = num_stream_ids;
@@ -75,12 +75,12 @@ void MLCBLongMessage::subscribe(byte *stream_ids, const byte num_stream_ids, voi
 }
 
 //
-/// initiate sending of a long message
+/// initiate sending of a multipart message
 /// this method sends the first message - the header packet
 /// the remainder of the message is sent in chunks from the process() method
 //
 
-bool MLCBLongMessage::sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority) {
+bool MLCBMultipartMessage::sendMultipartMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority) {
 
 	CANFrame frame;
 
@@ -120,7 +120,7 @@ bool MLCBLongMessage::sendLongMessage(const void *msg, const unsigned int msg_le
 /// we use this to send the individual fragments of an outgoing message and check the message receive timeout
 //
 
-bool MLCBLongMessage::process(void) {
+bool MLCBMultipartMessage::process(void) {
 
 	bool ret = true;
 	byte i;
@@ -130,7 +130,7 @@ bool MLCBLongMessage::process(void) {
 
 	if (_is_receiving && (millis() - _last_fragment_received >= _receive_timeout)) {
 		// DEBUG_SERIAL << F("> L: ERROR: timed out waiting for continuation packet") << endl;
-		(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_LONG_MESSAGE_TIMEOUT_ERROR);
+		(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_MULTIPART_MESSAGE_TIMEOUT_ERROR);
 		_is_receiving = false;
 		_incoming_message_length = 0;
 		_incoming_bytes_received = 0;
@@ -166,21 +166,21 @@ bool MLCBLongMessage::process(void) {
 }
 
 //
-/// handle a received long message fragment
-/// this method is called by the main MLCB object each time a long MLCB message is received (opcode 0xe9)
+/// handle a received multipart message fragment
+/// this method is called by the main MLCB object each time a multipart MLCB message is received (opcode 0xe9)
 //
 
-void MLCBLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
+void MLCBMultipartMessage::processReceivedMessageFragment(const CANFrame *frame) {
 
 	/// handle a received message fragment
 
-	// DEBUG_SERIAL << F("> L: processing received long message packet, message length = ") << _incoming_message_length << F(", rcvd so far = ") << _incoming_bytes_received << endl;
+	// DEBUG_SERIAL << F("> L: processing received multipart message packet, message length = ") << _incoming_message_length << F(", rcvd so far = ") << _incoming_bytes_received << endl;
 
 	_last_fragment_received = millis();
 
 	byte i, j;
 
-	if (!_is_receiving) {																																	// not currently receiving a long message
+	if (!_is_receiving) {																																	// not currently receiving a multipart message
 
 		if (frame->data[2] == 0) {																													// sequence zero = a header packet with start of new stream
 			if (frame->data[7] == 0) {																												// flags = 0, standard messages
@@ -225,7 +225,7 @@ void MLCBLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 						// if we have read the entire message
 						if (_incoming_bytes_received >= _incoming_message_length) {
 							// DEBUG_SERIAL << F("> L: bytes processed = ") << _incoming_bytes_received << F(", message data has been fully consumed") << endl;
-							(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_LONG_MESSAGE_COMPLETE);
+							(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_MULTIPART_MESSAGE_COMPLETE);
 							_receive_buffer_index = 0;
 							memset(_receive_buffer, 0, _receive_buffer_len);
 							break;
@@ -233,7 +233,7 @@ void MLCBLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 							// if the user buffer is full, give the user what we have so far
 						} else if (_receive_buffer_index >= _receive_buffer_len ) {
 							// DEBUG_SERIAL << F("> L: user buffer is full") << endl;
-							(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_LONG_MESSAGE_INCOMPLETE);
+							(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_MULTIPART_MESSAGE_INCOMPLETE);
 							_receive_buffer_index = 0;
 							memset(_receive_buffer, 0, _receive_buffer_len);
 						}
@@ -241,7 +241,7 @@ void MLCBLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 
 				} else {																																				// it's the wrong sequence id
 					// DEBUG_SERIAL << F("> L: ERROR: expected receive sequence num = ") << _expected_next_receive_sequence_num << F(" but got = ") << frame->data[2] << endl;
-					(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_LONG_MESSAGE_SEQUENCE_ERROR);
+					(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_MULTIPART_MESSAGE_SEQUENCE_ERROR);
 					_incoming_message_length = 0;
 					_incoming_bytes_received = 0;
 					_is_receiving = false;
@@ -268,10 +268,10 @@ void MLCBLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 		// surface any final fragment to the user's code
 		if (_receive_buffer_index > 0) {
 			// DEBUG_SERIAL << F("> L: surfacing final fragment") << endl;
-			(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_LONG_MESSAGE_COMPLETE);
+			(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, MLCB_MULTIPART_MESSAGE_COMPLETE);
 		}
 
-		// get ready for the next long message
+		// get ready for the next multipart message
 		_incoming_message_length = 0;
 		_incoming_bytes_received = 0;
 		_receive_buffer_index = 0;
@@ -282,12 +282,12 @@ void MLCBLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 }
 
 //
-/// report progress of sending last long message
+/// report progress of sending last multipart message
 /// true = complete, false = in progress, incomplete
 /// user code must not start a new message until the previous one has been completely sent
 //
 
-bool MLCBLongMessage::is_sending(void) {
+bool MLCBMultipartMessage::is_sending(void) {
 
 	return (_send_buffer_index < _send_buffer_len);
 }
@@ -296,7 +296,7 @@ bool MLCBLongMessage::is_sending(void) {
 /// send next message fragment
 //
 
-bool MLCBLongMessage::sendMessageFragment(CANFrame * frame, const byte priority) {
+bool MLCBMultipartMessage::sendMessageFragment(CANFrame * frame, const byte priority) {
 
 	// these are common to all messages
 	frame->len = 8;
@@ -310,7 +310,7 @@ bool MLCBLongMessage::sendMessageFragment(CANFrame * frame, const byte priority)
 /// overrides the default value
 //
 
-void MLCBLongMessage::setDelay(byte delay_in_millis) {
+void MLCBMultipartMessage::setDelay(byte delay_in_millis) {
 
 	_msg_delay = delay_in_millis;
 	return;
@@ -323,7 +323,7 @@ void MLCBLongMessage::setDelay(byte delay_in_millis) {
 /// overrides the default value
 //
 
-void MLCBLongMessage::setTimeout(unsigned int timeout_in_millis) {
+void MLCBMultipartMessage::setTimeout(unsigned int timeout_in_millis) {
 
 	_receive_timeout = timeout_in_millis;
 	return;
@@ -332,14 +332,14 @@ void MLCBLongMessage::setTimeout(unsigned int timeout_in_millis) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //
-//// extended support for multiple concurrent long messages
+//// extended support for multiple concurrent multipart messages
 //
 
 //
 /// allocate memory for receive and send contexts
 //
 
-bool MLCBLongMessageEx::allocateContexts(byte num_receive_contexts, unsigned int receive_buffer_len, byte num_send_contexts) {
+bool MLCBMultipartMessageEx::allocateContexts(byte num_receive_contexts, unsigned int receive_buffer_len, byte num_send_contexts) {
 
 	byte i;
 
@@ -384,12 +384,12 @@ bool MLCBLongMessageEx::allocateContexts(byte num_receive_contexts, unsigned int
 }
 
 //
-/// initiate sending of a long message
+/// initiate sending of a multipart message
 /// this method sends the first message - the header packet
 /// the remainder of the message is sent in fragments from the process() method
 //
 
-bool MLCBLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority) {
+bool MLCBMultipartMessageEx::sendMultipartMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority) {
 
 	byte i;
 	uint16_t msg_crc = 0;
@@ -454,7 +454,7 @@ bool MLCBLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_
 /// we use this to send the individual fragments of any outgoing messages and check the message receive timeouts
 //
 
-bool MLCBLongMessageEx::process(void) {
+bool MLCBMultipartMessageEx::process(void) {
 
 	bool ret = true;
 	byte i;
@@ -468,7 +468,7 @@ bool MLCBLongMessageEx::process(void) {
 		if (_receive_context[i]->in_use && (millis() - _receive_context[i]->last_fragment_received >= _receive_timeout)) {
 
 			// DEBUG_SERIAL << F("> Lex: ERROR: timed out waiting for continuation packet in context = ") << i << F(", timeout = ") << _receive_timeout << endl;
-			(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, MLCB_LONG_MESSAGE_TIMEOUT_ERROR);
+			(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, MLCB_MULTIPART_MESSAGE_TIMEOUT_ERROR);
 			_receive_context[i]->in_use = false;
 			// _receive_context[i]->incoming_message_length = 0;
 			// _receive_context[i]->incoming_bytes_received = 0;
@@ -519,7 +519,7 @@ bool MLCBLongMessageEx::process(void) {
 /// subscribe to a range of stream IDs
 //
 
-void MLCBLongMessageEx::subscribe(byte *stream_ids, const byte num_stream_ids, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status)) {
+void MLCBMultipartMessageEx::subscribe(byte *stream_ids, const byte num_stream_ids, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status)) {
 
 	_stream_ids = stream_ids;
 	_num_stream_ids = num_stream_ids;
@@ -530,11 +530,11 @@ void MLCBLongMessageEx::subscribe(byte *stream_ids, const byte num_stream_ids, v
 }
 
 //
-/// report state of long message sending
+/// report state of multipart message sending
 /// returns number of streams currently in progress
 //
 
-byte MLCBLongMessageEx::is_sending(void) {
+byte MLCBMultipartMessageEx::is_sending(void) {
 
 	byte i, num_streams;
 
@@ -548,10 +548,10 @@ byte MLCBLongMessageEx::is_sending(void) {
 }
 
 //
-/// handle an incoming long message MLCB message fragment
+/// handle an incoming multipart message MLCB message fragment
 //
 
-void MLCBLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
+void MLCBMultipartMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 
 	byte i, j, status;
 	uint16_t tmpcrc = 0;
@@ -620,7 +620,7 @@ void MLCBLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 		// error if out of sequence
 		if (frame->data[2] != _receive_context[i]->expected_next_receive_sequence_num) {
 			// DEBUG_SERIAL << F("> Lex: ERROR: expected receive sequence num = ") << _receive_context[i]->expected_next_receive_sequence_num << F(" but got = ") << frame->data[2] << endl;
-			(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, MLCB_LONG_MESSAGE_SEQUENCE_ERROR);
+			(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, MLCB_MULTIPART_MESSAGE_SEQUENCE_ERROR);
 			_receive_context[i]->in_use = false;
 			return;
 		}
@@ -644,9 +644,9 @@ void MLCBLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 
 				if (_receive_context[i]->incoming_message_crc != tmpcrc) {
 					// DEBUG_SERIAL << F("> Lex: message CRC error, expected = ") << _receive_context[i]->incoming_message_crc << F(", calculated = ") << tmpcrc << endl;
-					status = MLCB_LONG_MESSAGE_CRC_ERROR;
+					status = MLCB_MULTIPART_MESSAGE_CRC_ERROR;
 				} else {
-					status = MLCB_LONG_MESSAGE_COMPLETE;
+					status = MLCB_MULTIPART_MESSAGE_COMPLETE;
 				}
 
 				(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, status);
@@ -656,7 +656,7 @@ void MLCBLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 				// if the buffer is now full, give the user what we have with an error status
 			} else if (_receive_context[i]->receive_buffer_index >= _receive_buffer_len ) {
 				// DEBUG_SERIAL << F("> Lex: buffer is now full, message truncated") << endl;
-				(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, MLCB_LONG_MESSAGE_TRUNCATED);
+				(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, MLCB_MULTIPART_MESSAGE_TRUNCATED);
 				_receive_context[i]->in_use = false;
 				break;
 			}
@@ -673,7 +673,7 @@ void MLCBLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 /// set whether to calculate and compare a CRC of the message
 //
 
-void MLCBLongMessageEx::use_crc(bool use_crc) {
+void MLCBMultipartMessageEx::use_crc(bool use_crc) {
 
 	_use_crc = use_crc;
 	return;

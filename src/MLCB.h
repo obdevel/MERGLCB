@@ -1,7 +1,6 @@
 
 /*
-
-  Copyright (C) Duncan Greenwood 2017 (duncan_greenwood@hotmail.com)
+  Copyright (C) Duncan Greenwood 2023 (duncan_greenwood@hotmail.com)
 
   This work is licensed under the:
       Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
@@ -48,13 +47,13 @@
 #include <MLCBConfig.h>
 #include <MLCBdefs.h>
 
-#define SW_TR_HOLD 8000U                     // MLCB push button hold time for SLiM/FLiM transition in millis = 8 seconds
-#define DEFAULT_PRIORITY 0xB                 // default MLCB messages priority. 1011 = 2|3 = normal/low
-#define LONG_MESSAGE_DEFAULT_DELAY 20U       // delay in milliseconds between sending successive long message fragments
-#define LONG_MESSAGE_RECEIVE_TIMEOUT 5000UL  // timeout waiting for next long message packet
-#define NUM_EX_CONTEXTS 4U                   // number of send and receive contexts for extended implementation = number of concurrent messages
-#define EX_BUFFER_LEN 64U                    // size of extended send and receive buffers
-#define HBTIMER_INTERVAL 5000UL              // heartbeat interval in ms 
+#define SW_TR_HOLD 8000U                           // MLCB push button hold time for SLiM/FLiM transition in millis = 8 seconds
+#define DEFAULT_PRIORITY 0xB                       // default MLCB messages priority. 1011 = 2|3 = normal/low
+#define MULTIPART_MESSAGE_DEFAULT_DELAY 20U        // delay in milliseconds between sending successive long message fragments
+#define MULTIPART_MESSAGE_RECEIVE_TIMEOUT 5000UL   // timeout waiting for next long message packet
+#define NUM_EX_CONTEXTS 4U                         // number of send and receive contexts for extended implementation = number of concurrent messages
+#define EX_BUFFER_LEN 64U                          // size of extended send and receive buffers
+#define HBTIMER_INTERVAL 5000UL                    // heartbeat interval in ms 
 
 //
 /// MLCB modes
@@ -71,12 +70,12 @@ enum {
 //
 
 enum {
-  MLCB_LONG_MESSAGE_INCOMPLETE = 0,
-  MLCB_LONG_MESSAGE_COMPLETE,
-  MLCB_LONG_MESSAGE_SEQUENCE_ERROR,
-  MLCB_LONG_MESSAGE_TIMEOUT_ERROR,
-  MLCB_LONG_MESSAGE_CRC_ERROR,
-  MLCB_LONG_MESSAGE_TRUNCATED
+  MLCB_MULTIPART_MESSAGE_INCOMPLETE = 0,
+  MLCB_MULTIPART_MESSAGE_COMPLETE,
+  MLCB_MULTIPART_MESSAGE_SEQUENCE_ERROR,
+  MLCB_MULTIPART_MESSAGE_TIMEOUT_ERROR,
+  MLCB_MULTIPART_MESSAGE_CRC_ERROR,
+  MLCB_MULTIPART_MESSAGE_TRUNCATED
 };
 
 //
@@ -98,12 +97,11 @@ public:
 /// it must be implemented by a derived subclass
 //
 
-class MLCBLongMessage;      // forward reference
+class MLCBMultipartMessage;      // forward reference
 
 class MLCBbase {
 
 public:
-  MLCBbase();
   MLCBbase(MLCBConfig *the_config);
 
   // these methods are pure virtual and must be implemented by the derived class
@@ -124,7 +122,8 @@ public:
   bool sendWRACK(void);
   bool sendCMDERR(byte cerrno);
   bool sendGRSP(byte cerrno, byte opcode = 0, byte data1 = 0, byte data2 = 0);
-  void CANenumeration(void);
+  void start_enumeration(void);
+  void check_enumeration(void);
   byte getCANID(unsigned long header);
   bool isExt(CANFrame *msg);
   bool isRTR(CANFrame *msg);
@@ -137,15 +136,13 @@ public:
   void setSwitch(MLCBSwitch sw);
   void setParams(unsigned char *mparams);
   void setName(unsigned char *mname);
-  void checkCANenum(void);
   void indicateMode(byte mode);
   void setEventHandler(void (*fptr)(byte index, CANFrame *msg));
   void setEventHandler(void (*fptr)(byte index, CANFrame *msg, bool ison, byte evval));
   void setFrameHandler(void (*fptr)(CANFrame *msg), byte *opcodes = NULL, byte num_opcodes = 0);
   void makeHeader(CANFrame *msg, byte priority = DEFAULT_PRIORITY);
   void processAccessoryEvent(unsigned int nn, unsigned int en, bool is_on_event);
-
-  void setLongMessageHandler(MLCBLongMessage *handler);
+  void setMultipartMessageHandler(MLCBMultipartMessage *handler);
 
   unsigned int _numMsgsSent, _numMsgsRcvd, _numMsgsActioned, _numNNchanges;
 
@@ -161,17 +158,17 @@ protected:                                          // protected members become 
   void (*framehandler)(CANFrame *msg);
   byte *_opcodes;
   byte _num_opcodes;
-  byte enum_responses[16];                          // 128 bits for storing CAN ID enumeration results
-  bool bModeChanging, bCANenum, bLearn;
-  unsigned long timeOutTimer, CANenumTime;
+  byte enumeration_responses[16];                          // 128 bits for storing CAN ID enumeration results
+  bool mode_changing, enumeration_active, bLearn;
+  unsigned long timeout_timer, enumeration_start;
   bool enumeration_required;
   bool UI = false;
-
+  bool isMLCB = false;
   bool hbactive;
   uint8_t hbcount;
   uint32_t hbtimer;
 
-  MLCBLongMessage *longMessageHandler = NULL;       // MLCB long message object to receive relevant frames
+  MLCBMultipartMessage *MultipartMessageHandler = NULL;       // MLCB long message object to receive relevant frames
 };
 
 //
@@ -180,12 +177,12 @@ protected:                                          // protected members become 
 /// suitable for small microcontrollers with limited memory
 //
 
-class MLCBLongMessage {
+class MLCBMultipartMessage {
 
 public:
 
-  MLCBLongMessage(MLCBbase *MLCB_object_ptr);
-  bool sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority = DEFAULT_PRIORITY);
+  MLCBMultipartMessage(MLCBbase *MLCB_object_ptr);
+  bool sendMultipartMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority = DEFAULT_PRIORITY);
   void subscribe(byte *stream_ids, const byte num_stream_ids, void *receive_buffer, const unsigned int receive_buffer_len, void (*messagehandler)(void *fragment, const unsigned int fragment_len, const byte stream_id, const byte status));
   bool process(void);
   virtual void processReceivedMessageFragment(const CANFrame *frame);
@@ -199,9 +196,9 @@ protected:
 
   bool _is_receiving = false;
   byte *_send_buffer, *_receive_buffer;
-  byte _send_stream_id = 0, _receive_stream_id = 0, *_stream_ids = NULL, _num_stream_ids = 0, _send_priority = DEFAULT_PRIORITY, _msg_delay = LONG_MESSAGE_DEFAULT_DELAY, _sender_canid = 0;
+  byte _send_stream_id = 0, _receive_stream_id = 0, *_stream_ids = NULL, _num_stream_ids = 0, _send_priority = DEFAULT_PRIORITY, _msg_delay = MULTIPART_MESSAGE_DEFAULT_DELAY, _sender_canid = 0;
   unsigned int _send_buffer_len = 0, _incoming_message_length = 0, _receive_buffer_len = 0, _receive_buffer_index = 0, _send_buffer_index = 0, _incoming_message_crc = 0, \
-                                  _incoming_bytes_received = 0, _receive_timeout = LONG_MESSAGE_RECEIVE_TIMEOUT, _send_sequence_num = 0, _expected_next_receive_sequence_num = 0;
+                                  _incoming_bytes_received = 0, _receive_timeout = MULTIPART_MESSAGE_RECEIVE_TIMEOUT, _send_sequence_num = 0, _expected_next_receive_sequence_num = 0;
   unsigned long _last_fragment_sent = 0UL, _last_fragment_received = 0UL;
 
   void (*_messagehandler)(void *fragment, const unsigned int fragment_len, const byte stream_id, const byte status);        // user callback function to receive long message fragments
@@ -233,15 +230,15 @@ typedef struct _send_context_t {
 /// a derived class to extend the base long message class to handle multiple concurrent messages, sending and receiving
 //
 
-class MLCBLongMessageEx : public MLCBLongMessage {
+class MLCBMultipartMessageEx : public MLCBMultipartMessage {
 
 public:
 
-  MLCBLongMessageEx(MLCBbase *MLCB_object_ptr)
-    : MLCBLongMessage(MLCB_object_ptr) {}         // derived class constructor calls the base class constructor
+  MLCBMultipartMessageEx(MLCBbase *MLCB_object_ptr)
+    : MLCBMultipartMessage(MLCB_object_ptr) {}         // derived class constructor calls the base class constructor
 
   bool allocateContexts(byte num_receive_contexts = NUM_EX_CONTEXTS, unsigned int receive_buffer_len = EX_BUFFER_LEN, byte num_send_contexts = NUM_EX_CONTEXTS);
-  bool sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority = DEFAULT_PRIORITY);
+  bool sendMultipartMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority = DEFAULT_PRIORITY);
   bool process(void);
   void subscribe(byte *stream_ids, const byte num_stream_ids, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status));
   virtual void processReceivedMessageFragment(const CANFrame *frame);
