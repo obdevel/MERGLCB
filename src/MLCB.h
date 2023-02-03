@@ -1,7 +1,6 @@
 
 /*
-
-  Copyright (C) Duncan Greenwood 2017 (duncan_greenwood@hotmail.com)
+  Copyright (C) Duncan Greenwood 2023 (duncan_greenwood@hotmail.com)
 
   This work is licensed under the:
       Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
@@ -103,7 +102,6 @@ class MLCBLongMessage;      // forward reference
 class MLCBbase {
 
 public:
-  MLCBbase();
   MLCBbase(MLCBConfig *the_config);
 
   // these methods are pure virtual and must be implemented by the derived class
@@ -124,7 +122,8 @@ public:
   bool sendWRACK(void);
   bool sendCMDERR(byte cerrno);
   bool sendGRSP(byte cerrno, byte opcode = 0, byte data1 = 0, byte data2 = 0);
-  void CANenumeration(void);
+  void start_enumeration(void);
+  void check_enumeration(void);
   byte getCANID(unsigned long header);
   bool isExt(CANFrame *msg);
   bool isRTR(CANFrame *msg);
@@ -137,14 +136,12 @@ public:
   void setSwitch(MLCBSwitch sw);
   void setParams(unsigned char *mparams);
   void setName(unsigned char *mname);
-  void checkCANenum(void);
   void indicateMode(byte mode);
   void setEventHandler(void (*fptr)(byte index, CANFrame *msg));
   void setEventHandler(void (*fptr)(byte index, CANFrame *msg, bool ison, byte evval));
   void setFrameHandler(void (*fptr)(CANFrame *msg), byte *opcodes = NULL, byte num_opcodes = 0);
   void makeHeader(CANFrame *msg, byte priority = DEFAULT_PRIORITY);
   void processAccessoryEvent(unsigned int nn, unsigned int en, bool is_on_event);
-
   void setLongMessageHandler(MLCBLongMessage *handler);
 
   unsigned int _numMsgsSent, _numMsgsRcvd, _numMsgsActioned, _numNNchanges;
@@ -161,12 +158,12 @@ protected:                                          // protected members become 
   void (*framehandler)(CANFrame *msg);
   byte *_opcodes;
   byte _num_opcodes;
-  byte enum_responses[16];                          // 128 bits for storing CAN ID enumeration results
-  bool bModeChanging, bCANenum, bLearn;
-  unsigned long timeOutTimer, CANenumTime;
+  byte enumeration_responses[16];                          // 128 bits for storing CAN ID enumeration results
+  bool mode_changing, enumeration_active, bLearn;
+  unsigned long timeout_timer, enumeration_start;
   bool enumeration_required;
   bool UI = false;
-
+  bool isMLCB = false;
   bool hbactive;
   uint8_t hbcount;
   uint32_t hbtimer;
