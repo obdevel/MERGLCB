@@ -34,7 +34,6 @@
 
 */
 
-
 // 3rd party libraries
 #include <Streaming.h>
 
@@ -849,9 +848,9 @@ void MLCBbase::process(byte num_messages) {
         break;
 
       case OPC_DTXC:
-        // MLCB long message
-        if (longMessageHandler != NULL) {
-          longMessageHandler->processReceivedMessageFragment(&_msg);
+        // MLCB multipart message
+        if (MultipartMessageHandler != NULL) {
+          MultipartMessageHandler->processReceivedMessageFragment(&_msg);
         }
         break;
 
@@ -1033,11 +1032,11 @@ void MLCBbase::processAccessoryEvent(unsigned int nn, unsigned int en, bool is_o
 }
 
 //
-/// set the long message handler object to receive long message frames
+/// set the multipart message handler object to receive multipart message frames
 //
 
-void MLCBbase::setLongMessageHandler(MLCBLongMessage *handler) {
-  longMessageHandler = handler;
+void MLCBbase::setMultipartMessageHandler(MLCBMultipartMessage *handler) {
+  MultipartMessageHandler = handler;
 }
 
 //

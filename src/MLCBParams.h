@@ -34,20 +34,21 @@
 
 */
 
-#define MANU_DEV  13  // For new manufacturer development - who don't have a manufacturer id yet
-#define MANU_MERG 165 // https://www.merg.co.uk
-#define PB_CAN  1 // 
-#define CPUM_ATMEL  2 // 
+// #define MANU_DEV  13  // For new manufacturer development - who don't have a manufacturer id yet
+// #define MANU_MERG 165 // https://www.merg.co.uk
+// #define PB_CAN  1 // 
+// #define CPUM_ATMEL  2 // 
 
-#define PF_NOEVENTS 0 // Module doesn't support events
-#define PF_CONSUMER 1 // Module is a consumer of events
-#define PF_PRODUCER 2 // Module is a producer of events
-#define PF_COMBI  3 // Module is both a consumer and producer of events
-#define PF_FLiM 4 // Module is in FLiM
-#define PF_BOOT 8 // Module supports the FCU bootloader protocol
-#define PF_COE  16  // Module can consume its own events
-#define PF_LRN  32  // Module is in learn mode
+// #define PF_NOEVENTS 0 // Module doesn't support events
+// #define PF_CONSUMER 1 // Module is a consumer of events
+// #define PF_PRODUCER 2 // Module is a producer of events
+// #define PF_COMBI  3 // Module is both a consumer and producer of events
+// #define PF_FLiM 4 // Module is in FLiM
+// #define PF_BOOT 8 // Module supports the FCU bootloader protocol
+// #define PF_COE  16  // Module can consume its own events
+// #define PF_LRN  32  // Module is in learn mode
 
+#include <MLCBdefs.h>
 #include <MLCBConfig.h>
 
 class MLCBParams {
@@ -55,6 +56,7 @@ public:
   MLCBParams(MLCBConfig const & config) {
     params[0] = 20;                     //  0 num params = 20
     params[1] = MANU_MERG;              //  1 manf = MERG, 165
+    params[3] = MTYP_MERGLCB;           //  3 all MLCB modules use same ID
     params[4] = config.EE_MAX_EVENTS;   //  4 num events
     params[5] = config.EE_NUM_EVS;      //  5 num evs per event
     params[6] = config.EE_NUM_NVS;      //  6 num NVs
@@ -72,13 +74,13 @@ public:
     params[20] = build;                // 20 code beta version
   }
 
-  void setModuleId(byte id) {
-    params[3] = id;                   //  3 module id
-  }
+  // // void setModuleId(byte id) {
+  // //   params[3] = id;                   //  3 module id
+  // // }
 
-  void setFlags(byte flags) {
-    params[8] = flags;                //  8 flags - FLiM, consumer/producer
-  }
+  // void setFlags(byte flags) {
+  //   params[8] = flags;                //  8 flags - FLiM, consumer/producer
+  // }
 
   // Optional: use this to override processor info that is set by default.
   void setProcessor(byte manufacturer, byte id, char const * name) {

@@ -34,8 +34,196 @@
 
 */
 
-/// MLCB opcodes
 
+/*
+  Copyright (C) Duncan Greenwood 2023 (duncan_greenwood@hotmail.com)
+
+  This work is licensed under the:
+      Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+   To view a copy of this license, visit:
+      http://creativecommons.org/licenses/by-nc-sa/4.0/
+   or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
+   License summary:
+    You are free to:
+      Share, copy and redistribute the material in any medium or format
+      Adapt, remix, transform, and build upon the material
+
+    The licensor cannot revoke these freedoms as long as you follow the license terms.
+
+    Attribution : You must give appropriate credit, provide a link to the license,
+                  and indicate if changes were made. You may do so in any reasonable manner,
+                  but not in any way that suggests the licensor endorses you or your use.
+
+    NonCommercial : You may not use the material for commercial purposes. **(see note below)
+
+    ShareAlike : If you remix, transform, or build upon the material, you must distribute
+                 your contributions under the same license as the original.
+
+    No additional restrictions : You may not apply legal terms or technological measures that
+                                 legally restrict others from doing anything the license permits.
+
+   ** For commercial use, please contact the original copyright holder(s) to agree licensing terms
+
+    This software is distributed in the hope that it will be useful, but WITHOUT ANY
+    WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE
+
+*/
+
+#pragma once
+
+#define SERVICE_ID_NONE      0xFF
+#define SERVICE_ID_ALL       0
+
+//
+// MERGLCB Service Types
+//
+#define SERVICE_ID_MNS      1   ///< The minimum node service. All modules must implement this.
+#define SERVICE_ID_NV       2   ///< The NV service.
+#define SERVICE_ID_CAN      3   ///< The PIC18 ECAN CAN service. Also implements the CAN transport.
+#define SERVICE_ID_TEACH    4   ///< Event teaching service.
+#define SERVICE_ID_PRODUCER 5   ///< Event producer service.
+#define SERVICE_ID_CONSUMER 6   ///< Event comsumer service.
+#define SERVICE_ID_EVENTACK 9   ///< Event acknowledge service. Useful for debugging event configuration.
+#define SERVICE_ID_BOOT     10  ///< FCU/PIC bootloader service.
+
+//
+/// MANUFACTURER  - Used in the parameter block.
+#define MANU_MERG 165
+/// MODULE ID    - Used in the parameter block. All MERGLCB modules have the same ID
+#define MTYP_MERGLCB    0xFC
+
+//
+// Parameters
+//
+#define PAR_NUM   0 ///< Number of parameters
+#define PAR_MANU  1 ///< Manufacturer id
+#define PAR_MINVER  2 ///< Minor version letter
+#define PAR_MTYP  3 ///< Module type code
+#define PAR_EVTNUM  4 ///< Number of events supported
+#define PAR_EVNUM 5 ///< Event variables per event
+#define PAR_NVNUM 6 ///< Number of Node variables
+#define PAR_MAJVER  7 ///< Major version number
+#define PAR_FLAGS 8 ///< Node flags
+#define PAR_CPUID 9 ///< Processor type
+#define PAR_BUSTYPE 10  ///< Bus type
+#define PAR_LOAD1 11  ///< load address, 4 bytes
+#define PAR_LOAD2 12
+#define PAR_LOAD3 13
+#define PAR_LOAD4 14
+#define PAR_CPUMID  15  ///< CPU manufacturer's id as read from the chip config space, 4 bytes (note - read from cpu at runtime, so not included in checksum)
+#define PAR_CPUMAN  19  ///< CPU manufacturer code
+#define PAR_BETA  20  ///< Beta revision (numeric), or 0 if release
+
+//
+// BUS type that module is connected to
+//
+#define PB_CAN  1 ///< CAN interface
+#define PB_ETH  2 ///< Etrhernet interface
+#define PB_MIWI 3 ///< MIWI interface
+
+//
+// Error codes for OPC_CMDERR
+//
+#define CMDERR_INV_CMD          1 ///< Invalid command
+#define CMDERR_NOT_LRN          2 ///< Not in learn mode
+#define CMDERR_NOT_SETUP        3 ///< Not in setup mode
+#define CMDERR_TOO_MANY_EVENTS  4 ///< Too many events
+#define CMDERR_NO_EV            5 ///< No EV
+#define CMDERR_INV_EV_IDX       6 ///< Invalid EV index
+#define CMDERR_INVALID_EVENT  7 ///< Invalid event
+#define CMDERR_INV_EN_IDX       8 ///< now reserved
+#define CMDERR_INV_PARAM_IDX  9 ///< Invalid param index
+#define CMDERR_INV_NV_IDX       10  ///< Invalid NV index
+#define CMDERR_INV_EV_VALUE     11  ///< Invalie EV value
+#define CMDERR_INV_NV_VALUE     12  ///< Invalid NV value
+
+//
+// GRSP codes
+//
+#define GRSP_OK                 0   ///< Success
+#define GRSP_UNKNOWN_NVM_TYPE   254 ///< Unknown non valatile memory type
+#define GRSP_INVALID_DIAGNOSTIC 253 ///< Invalid diagnostic
+#define GRSP_INVALID_SERVICE    252 ///< Invalid service
+
+//
+// Modes
+//
+#define MODE_UNINITIALISED      0   ///< Uninitialised mode
+#define MODE_SETUP      1   ///< Setup mode
+#define MODE_NORMAL     2   ///< Normal mode
+#define MODE_LEARN      3   ///< Learn mode
+#define MODE_EVENT_ACK  4   ///< Event acknowledgement mode
+#define MODE_BOOT       5   ///< Boot mode for FCU compatible bootloader
+#define MODE_BOOT2      6   ///< Boot mode for MERGLCB boot service
+#define MODE_NOHEARTB   7   ///< No heartbeat mode
+
+//
+// Processor manufacturer codes
+//
+#define CPUM_MICROCHIP  1 // 
+#define CPUM_ATMEL      2 // 
+#define CPUM_ARM        3 // 
+
+//
+// Microchip Processor type codes (identifies to FCU for bootload compatiblity)
+//
+#define P18F2480  1 // 
+#define P18F4480  2 // 
+#define P18F2580  3 // 
+#define P18F4580  4 // 
+#define P18F2585  5 // 
+#define P18F4585  6 // 
+#define P18F2680  7 // 
+#define P18F4680  8 // 
+#define P18F2682  9 // 
+#define P18F4682  10  // 
+#define P18F2685  11  // 
+#define P18F4685  12  // 
+//
+#define P18F25K80 13  // 
+#define P18F45K80 14  // 
+#define P18F26K80 15  // 
+#define P18F46K80 16  // 
+#define P18F65K80 17  // 
+#define P18F66K80 18  // 
+#define P18F14K22 19  // 
+#define P18F26K83 20  // 
+#define P18F27Q84 21  // 
+#define P18F47Q84 22  // 
+#define P18F27Q83 23  // 
+//
+#define P32MX534F064  30  // 
+#define P32MX564F064  31  // 
+#define P32MX564F128  32  // 
+#define P32MX575F256  33  // 
+#define P32MX575F512  34  // 
+#define P32MX764F128  35  // 
+#define P32MX775F256  36  // 
+#define P32MX775F512  37  // 
+#define P32MX795F512  38  // 
+//
+// ARM Processor type codes (identifies to FCU for bootload compatiblity)
+//
+#define ARM1176JZF_S  1 // As used in Raspberry Pi
+#define ARMCortex_A7  2 // As Used in Raspberry Pi 2
+#define ARMCortex_A53 3 // As used in Raspberry Pi 3
+
+
+/*
+ * Message priorities
+ */
+typedef enum Priority {
+  pLOW = 0,
+  pNORMAL = 1,
+  pABOVE = 2,
+  pHIGH = 3,
+} Priority;
+
+
+//
+// MERGLCB opcodes list
+//
 enum {
   OPC_ACK = 0x00,
   OPC_NAK = 0x01,
