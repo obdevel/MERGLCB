@@ -35,6 +35,7 @@
 */
 
 #pragma once
+#include <Arduino.h>
 
 #ifndef DEBUG_SERIAL
 #define DEBUG_SERIAL Serial
