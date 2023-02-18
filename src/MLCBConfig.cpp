@@ -39,7 +39,6 @@
 /// manages the storage of events and node variables in on-chip or external EEPROM
 //
 
-#include <Wire.h>
 #include <Streaming.h>
 
 #include "MLCBConfig.h"
